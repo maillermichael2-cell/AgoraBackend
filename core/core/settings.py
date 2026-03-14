@@ -12,9 +12,13 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 
 # Quick-start development settings - unsuitable for production
@@ -43,6 +47,12 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'catalog',
     'authServices',
+    'orders',
+    'vendors',
+    'payments',
+    'reviews',
+    'notification',
+    'django_cleanup.apps.CleanupConfig',
 ]
 
 AUTH_USER_MODEL = 'authServices.Account'
@@ -64,6 +74,8 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,                 # Issued new refresh token on every refresh
     "BLACKLIST_AFTER_ROTATION": True,               # Invalidate old refresh token after use
     "UPDATE_LAST_LOGIN": True,                      # Track user activity
+
+    "AUTH_HEADER_TYPES": ('Bearer',),
     
     "ALGORITHM": "HS256",
     "SIGNING_KEY": SECRET_KEY,                      # Uses your Django Secret Key

@@ -14,7 +14,7 @@ class VendorRegistrationView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         return Response({
-            "status": "success",
+            "status": "success",    
             "message": "Vendor account created, please log in to continue"
         },status=status.HTTP_201_CREATED)
 
@@ -36,3 +36,4 @@ class CustomerRegistrationView(generics.CreateAPIView):
 class LoginView(TokenObtainPairView) :
     serializer_class = MyTokenObtainPairSerializers
     permission_classes = [AllowAny]
+    

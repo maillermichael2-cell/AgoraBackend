@@ -67,17 +67,32 @@ class CustomerRegistrationSerializer(serializers.ModelSerializer):
         return user
 
 # login serializer
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
 class MyTokenObtainPairSerializers(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+
+        # 1. Add claims INSIDE the token (encrypted)
+        # This allows you to check request.user.role in any View
+        token['role'] = user.role
+        token['username'] = user.username
+        return token
+
     def validate(self, attrs):
+        # 2. This part adds data to the JSON response (visible in React)
         data = super().validate(attrs)
 
-        #add custom fields to the response (profile info to response)
         data['role'] = self.user.role
         data['username'] = self.user.username
 
         if self.user.role == 'VENDOR':
-            data['profile_id'] = self.user.vendor_profile.id
+            # Use getattr to prevent crashes if profile doesn't exist yet
+            profile = getattr(self.user, 'vendor_profile', None)
+            data['profile_id'] = profile.id if profile else None
         else:
-            data['profile_id'] = self.user.customer_profile.id
+            profile = getattr(self.user, 'customer_profile', None)
+            data['profile_id'] = profile.id if profile else None
 
         return data

@@ -7,7 +7,7 @@ from django.contrib.auth.models import AbstractUser
 # custom user model
         # this Account  model handles who is loggin in .
 class Account(AbstractUser):
-    # main auth model this handles : username, password email, and the role.
+                # main auth model this handles : username, password email, and the role.
     class Role(models.TextChoices) :
         Vendor = 'VENDOR', 'vendor'
         Customer = 'CUSTOMER', 'customer'
@@ -17,7 +17,7 @@ class Account(AbstractUser):
 
 # this is the vendor profile model
 class VendorProfile(models.Model):
-    user = models.OneToOneField(Account, on_delete=models.CASCADE, related_name='vendor_profile') 
+    user = models.OneToOneField(Account, on_delete=models.CASCADE, related_name='auth_vendor_profile') 
     country = models.CharField(max_length=100)
     business_name = models.CharField(max_length=255)
     business_address = models.CharField(max_length=350)
@@ -28,7 +28,7 @@ class VendorProfile(models.Model):
         return f'{self.business_name}'
     
 class CustomerProfile(models.Model):
-    user = models.OneToOneField(Account, on_delete=models.CASCADE, related_name='customer_profile')
+    user = models.OneToOneField(Account, on_delete=models.CASCADE, related_name='auth_customer_profile')
     full_name = models.CharField(max_length=255)
     phone_number = models.CharField(max_length=20)
     location = models.CharField(max_length=255)

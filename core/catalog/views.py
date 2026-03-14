@@ -1,41 +1,63 @@
-from rest_framework.views import APIView
+from rest_framework import generics, permissions, status
 from rest_framework.response import Response
-from rest_framework import status
 from django.shortcuts import get_object_or_404
-from .models import Product
-from .serializers import ProductSerializer
+from .models import Product, Category
+from .serializers import ProductSerializer, CategorySerializer
 
-# 1. Handles List (GET) and Create (POST)
-class ProductListCreateView(APIView):
-    def get(self, request):
-        items = Product.objects.all()
-        serializer = ProductSerializer(items, many=True)
-        return Response(serializer.data)
+# 1. Optimized List & Create View
+class ProductListCreateView(generics.ListCreateAPIView):
+    serializer_class = ProductSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
-    def post(self, request):
-        serializer = ProductSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def get_queryset(self):
+        """
+        Optimized Query: 
+        - Only active products
+        - Filter by category slug if provided in URL: ?category=shoes
+        - Prefetch category/vendor to reduce DB hits (N+1 problem)
+        """
+        queryset = Product.objects.filter(is_active=True).select_related('category', 'vendor')
+        category_slug = self.request.query_params.get('category')
+        if category_slug:
+            queryset = queryset.filter(category__slug=category_slug)
+        return queryset
 
-# 2. Handles Detail (GET), Update (PUT), and Delete (DELETE)
-class ProductDetailView(APIView):
-    def get(self, request, pk):
-        product = get_object_or_404(Product, pk=pk)
-        serializer = ProductSerializer(product)
-        return Response(serializer.data)
+    def perform_create(self, serializer):
+        """
+        Logic: Only users with a vendor_main profile can create products.
+        The product is automatically linked to their store.
+        """
+        if not hasattr(self.request.user, 'vendor_main'):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You must have a Vendor profile to post products.")
+        
+        serializer.save(vendor=self.request.user.vendor_main)
 
-    def put(self, request, pk):
-        product = get_object_or_404(Product, pk=pk)
-        # 'partial=True' allows you to update just the price or just the name
-        serializer = ProductSerializer(product, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def delete(self, request, pk):
-        product = get_object_or_404(Product, pk=pk)
-        product.delete()
-        return Response({"message": "Product deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+# 2. Optimized Detail, Update & Delete View
+class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def perform_update(self, serializer):
+        # Security: Only the owner (vendor) can update
+        obj = self.get_object()
+        if not hasattr(self.request.user, 'vendor_main') or obj.vendor != self.request.user.vendor_main:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Not authorized to edit this product.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # Security: Only the owner (vendor) can delete
+        if not hasattr(self.request.user, 'vendor_main') or instance.vendor != self.request.user.vendor_main:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Not authorized to delete this product.")
+        instance.delete()
+
+
+# 3. Optimized Category View (Read Only)
+class CategoryListView(generics.ListAPIView):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
+    permission_classes = [permissions.AllowAny]
