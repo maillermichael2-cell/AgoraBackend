@@ -1,11 +1,12 @@
 from rest_framework import serializers
+from django.db import transaction
 from .models import Cart, CartItem, Order, OrderItem
 from catalog.serializers import ProductSerializer
 
 # --- CART SERIALIZERS ---
 
 class CartItemSerializer(serializers.ModelSerializer):
-    """ Shows individual items in the cart with full product info """
+    """Shows individual items in the cart with full product info"""
     product_details = ProductSerializer(source='product', read_only=True)
     subtotal = serializers.ReadOnlyField()
 
@@ -14,7 +15,7 @@ class CartItemSerializer(serializers.ModelSerializer):
         fields = ['id', 'product', 'product_details', 'quantity', 'subtotal']
 
 class CartSerializer(serializers.ModelSerializer):
-    """ Shows the customer's active cart and total cost """
+    """Shows the customer's active cart and total cost"""
     items = CartItemSerializer(many=True, read_only=True)
     total_price = serializers.ReadOnlyField()
 
@@ -26,13 +27,10 @@ class CartSerializer(serializers.ModelSerializer):
 # --- ORDER SERIALIZERS ---
 
 class OrderItemSerializer(serializers.ModelSerializer):
-    """ 
-    The Vendor's view of an order. 
-    Shows product name and handles status updates.
-    """
+    """The Vendor's and Customer's view of a specific product in an order"""
     product_name = serializers.ReadOnlyField(source='product.name')
-    # Helps the customer see which shop sold them the item
-    vendor_shop_name = serializers.ReadOnlyField(source='vendor.username') 
+    # FIXED: Points to vendor.store_name instead of user.username
+    vendor_shop_name = serializers.ReadOnlyField(source='vendor.store_name') 
 
     class Meta:
         model = OrderItem
@@ -40,10 +38,10 @@ class OrderItemSerializer(serializers.ModelSerializer):
             'id', 'product_name', 'vendor_shop_name', 
             'quantity', 'price_at_purchase', 'status', 'updated_at'
         ]
-        read_only_fields = ['price_at_purchase']
+        read_only_fields = ['price_at_purchase', 'status']
 
 class OrderSerializer(serializers.ModelSerializer):
-    """ The Customer's view of their full purchase history """
+    """The Customer's view of their full purchase history"""
     order_items = OrderItemSerializer(many=True, read_only=True)
 
     class Meta:
@@ -54,12 +52,11 @@ class OrderSerializer(serializers.ModelSerializer):
         ]
 
 
-# --- CHECKOUT SERIALIZER ---
+# --- CHECKOUT SERIALIZER (The Engine) ---
 
 class CheckoutSerializer(serializers.Serializer):
-    """ 
-    A Virtual Serializer used only to capture shipping data 
-    and trigger the 'Cart to Order' conversion.
+    """
+    Captures shipping data and converts Cart -> Order + OrderItems.
     """
     full_name = serializers.CharField(max_length=255)
     address = serializers.CharField()
@@ -67,6 +64,41 @@ class CheckoutSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         user = self.context['request'].user
+        # Check if cart exists and has items
         if not hasattr(user, 'cart') or not user.cart.items.exists():
             raise serializers.ValidationError("Your cart is empty.")
         return attrs
+
+    def create(self, validated_data):
+        user = self.context['request'].user
+        cart = user.cart
+
+        # We use a transaction to ensure if anything fails, no partial order is created
+        with transaction.atomic():
+            # 1. Create the Master Order
+            order = Order.objects.create(
+                customer=user,
+                total_amount=cart.total_price,
+                full_name=validated_data['full_name'],
+                address=validated_data['address'],
+                phone=validated_data['phone']
+            )
+
+            # 2. Convert each CartItem into an OrderItem
+            for item in cart.items.all():
+                OrderItem.objects.create(
+                    order=order,
+                    product=item.product,
+                    vendor=item.product.vendor, # Automatically routes to the right store
+                    quantity=item.quantity,
+                    price_at_purchase=item.product.price # Locks in the price
+                )
+
+                # Optional: Decrease product stock
+                # item.product.stock -= item.quantity
+                # item.product.save()
+
+            # 3. Wipe the cart clean
+            cart.items.all().delete()
+
+        return order

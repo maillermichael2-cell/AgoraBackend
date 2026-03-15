@@ -102,18 +102,30 @@ class CustomerOrderHistoryView(generics.ListAPIView):
     def get_queryset(self):
         return Order.objects.filter(customer=self.request.user).order_by('-created_at')
 
+# --- VENDOR ORDERS ---
+
 class VendorOrdersView(generics.ListAPIView):
-    """Only shows items belonging to the logged-in vendor"""
+    """Only shows items belonging to the logged-in vendor's store"""
     serializer_class = OrderItemSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return OrderItem.objects.filter(vendor=self.request.user).order_by('-updated_at')
+        # SECURITY & LOGIC: Check if user has a store, then filter by that store
+        if hasattr(self.request.user, 'vendor_main'):
+            return OrderItem.objects.filter(vendor=self.request.user.vendor_main).order_by('-updated_at')
+        return OrderItem.objects.none() # Return empty if they aren't a vendor
 
 class VendorUpdateStatusView(generics.UpdateAPIView):
-    """Vendor updates the shipping status of an item"""
+    """Vendor updates the shipping status of their own items only"""
     serializer_class = OrderItemSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return OrderItem.objects.filter(vendor=self.request.user)
+        # SECURITY: Ensure Vendor A cannot update Vendor B's items via ID guessing
+        if hasattr(self.request.user, 'vendor_main'):
+            return OrderItem.objects.filter(vendor=self.request.user.vendor_main)
+        return OrderItem.objects.none()
+
+# --- CHECKOUT (Double-Check) ---
+# Your Checkout logic is good, but make sure the 'item.product.vendor' 
+# is actually a Vendor object (which it is in your current Product model).
